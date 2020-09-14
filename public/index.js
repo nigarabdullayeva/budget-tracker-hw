@@ -1,6 +1,12 @@
 let transactions = [];
 let myChart;
 
+let db;
+
+const request = indexedDB.open("budgetTr", 1 );
+offlineTransaction();
+
+
 fetch("/api/transaction")
   .then(response => {
     return response.json();
@@ -13,6 +19,68 @@ fetch("/api/transaction")
     populateTable();
     populateChart();
   });
+
+  function offlineTransaction() {
+    request.onupgradeneeded = function(event) {
+      const db = event.target.result;
+      db.createObjectStore ("budgetTr", { autoIncrement: true });
+    };
+    request.onsuccess = function(event) {
+      db = event.target.result;
+      if (navigator.onLine) {
+        seeDatabase();
+      }
+    };
+    
+    request.onerror = function(event) {
+      console.log("Woops! " + event.target.errorCode);
+    };
+  }
+
+  function seeDatabase() {
+    const transaction = db.transaction(["budgetTr"], "readwrite");
+    const store = transaction.objectStore("budgetTr");
+    const getAll = store.getAll();
+  
+    getAll.onsuccess = function() {
+      if (getAll.result.length > 0) {
+        fetch("/api/transaction/bulk", {
+          method: "POST",
+          body: JSON.stringify(getAll.result),
+          headers: {
+            Accept: "application/json, text/plain, */*",
+            "Content-Type": "application/json"
+          }
+        })
+        .then(response => response.json())
+        .then(() => {
+          const transaction = db.transaction(["budgetTr"], "readwrite");
+          const store = transaction.objectStore("budgetTr");
+          store.clear();
+        });
+      }
+    };
+  }
+
+  function addOfflineItems() {
+
+    const transaction = db.transaction(["budgetTr"], "readwrite");
+    const store = transaction.objectStore("budgetTr");
+    const getAll = store.getAll();               
+  
+    getAll.onsuccess = function() {
+      if (getAll.result.length > 0) {
+          getAll.result.forEach(temp=>{
+              transactions.unshift(temp);
+          })
+      }
+      populateTotal();
+      populateTable(); 
+      populateChart(); 
+  
+    };
+  }
+
 
 function populateTotal() {
   // reduce transaction amounts to a single total value
@@ -144,6 +212,13 @@ function sendTransaction(isAdding) {
   });
 }
 
+function saveRecord(record) {
+
+  const transaction = db.transaction(["budgetTr"], "readwrite");
+  const store = transaction.objectStore("budgetTr");
+  store.add(record);
+}
+
 document.querySelector("#add-btn").onclick = function() {
   sendTransaction(true);
 };
@@ -151,3 +226,6 @@ document.querySelector("#add-btn").onclick = function() {
 document.querySelector("#sub-btn").onclick = function() {
   sendTransaction(false);
 };
+
+
+window.addEventListener("online", seeDatabase);
